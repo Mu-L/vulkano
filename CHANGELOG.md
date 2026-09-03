@@ -33,6 +33,7 @@ Changes to Vulkan initialization:
 Changes to devices and queues:
 - `Device::from_handle[_borrowed]` no longer retrieves queues, as this was impossible to use soundly. You should instead use `Queue::from_handle` to create queues when working with an external API.
 - `Device::set_debug_utils_object_name` and `DeviceOwnedVulkanObject::set_debug_utils_object_name` are now marked unsafe. They have always been unsafe, but marked incorrectly.
+- `Device::new` and friends now return a `Vec` of queues rather than an iterator.
 
 Changes to images:
 - `FormatProperties` no longer has a `_ne` field and is now marked `#[non_exhaustive]` instead.
@@ -122,6 +123,7 @@ Changes to command buffers:
 - Added `SurfaceObject`.
 - Added support for the `khr_pipeline_executable_properties` extension via `Pipeline::executable_properties`, `Pipeline::executable_statistics` and `Pipeline::executable_internal_representations`.
 - Added `Pipeline::flags`.
+- Added `new_with` constructor functions to `Device` and `Instance`, which can be used to manually invoke create functions while using vulkano's create infos.
 - Vulkano-shaders: Allow defining per-shader macros in a `shader! { shaders: { ... } }` block in addition to global defines.
 - Vulkano-shaders: Added a `lang` option to the macro for defining the shader language.
 - Vulkano-shaders: Relative includes (`#include "..."`) now work in shader source embedded in Rust, and they are relative to the file in which that source is embedded.
