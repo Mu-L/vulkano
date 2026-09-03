@@ -126,6 +126,7 @@ Changes to command buffers:
 - Vulkano-shaders: Added a `lang` option to the macro for defining the shader language.
 - Vulkano-shaders: Relative includes (`#include "..."`) now work in shader source embedded in Rust, and they are relative to the file in which that source is embedded.
 - Vulkano-shaders: Implemented support for the HLSL and Slang languages.
+- Added support for the rest of the `ext_swapchain_maintenance1` extension.
 
 ### Bugs fixed
 
