@@ -96,7 +96,7 @@ use std::{
     cmp,
     ffi::{c_char, CStr, CString},
     fmt::{Debug, Error as FmtError, Formatter},
-    mem::MaybeUninit,
+    mem::{ManuallyDrop, MaybeUninit},
     num::NonZero,
     ops::Deref,
     panic::{RefUnwindSafe, UnwindSafe},
@@ -345,6 +345,123 @@ impl Instance {
         library: &Arc<VulkanLibrary>,
         create_info: &InstanceCreateInfo<'_>,
     ) -> Result<Arc<Instance>, VulkanError> {
+        unsafe fn create_fn_raw(
+            data: *const (),
+            create_info_vk: &vk::InstanceCreateInfo<'_>,
+        ) -> Result<vk::Instance, VulkanError> {
+            // SAFETY: The caller must ensure that `data` is the same one we pass below.
+            let library = unsafe { &*data.cast::<Arc<VulkanLibrary>>() };
+
+            let mut output = MaybeUninit::uninit();
+            let fns = library.fns();
+            unsafe { (fns.v1_0.create_instance)(create_info_vk, ptr::null(), output.as_mut_ptr()) }
+                .result()
+                .map_err(VulkanError::from)?;
+
+            Ok(unsafe { output.assume_init() })
+        }
+
+        unsafe {
+            Self::new_with_unchecked_inner(
+                library,
+                create_info,
+                <*const _>::cast(library),
+                create_fn_raw,
+            )
+        }
+    }
+
+    /// Creates a new `Instance` using a custom instance create function, panicking on a validation
+    /// error.
+    ///
+    /// This is a shortcut for `try_new_with().map_err(Validated::unwrap)`.
+    ///
+    /// # Safety
+    ///
+    /// - `create_fn` must return a valid Vulkan object handle created from `library`.
+    ///
+    /// # Panics
+    ///
+    /// - Panics if [`try_new_with`] returns a [`ValidationError`].
+    ///
+    /// [`try_new_with`]: Self::try_new_with
+    #[inline]
+    #[track_caller]
+    pub unsafe fn new_with(
+        library: &Arc<VulkanLibrary>,
+        create_info: &InstanceCreateInfo<'_>,
+        create_fn: impl FnOnce(&vk::InstanceCreateInfo<'_>) -> Result<vk::Instance, VulkanError>,
+    ) -> Result<Arc<Instance>, VulkanError> {
+        match unsafe { Self::try_new_with(library, create_info, create_fn) } {
+            Ok(res) => Ok(res),
+            Err(err) => Err(err.unwrap()),
+        }
+    }
+
+    /// Creates a new `Instance` using a custom instance create function.
+    ///
+    /// # Safety
+    ///
+    /// - `create_fn` must return a valid Vulkan object handle created from `library`.
+    #[inline]
+    pub unsafe fn try_new_with(
+        library: &Arc<VulkanLibrary>,
+        create_info: &InstanceCreateInfo<'_>,
+        create_fn: impl FnOnce(&vk::InstanceCreateInfo<'_>) -> Result<vk::Instance, VulkanError>,
+    ) -> Result<Arc<Instance>, Validated<VulkanError>> {
+        Self::validate_new(library, create_info)?;
+
+        Ok(unsafe { Self::new_with_unchecked(library, create_info, create_fn) }?)
+    }
+
+    #[cfg_attr(not(feature = "document_unchecked"), doc(hidden))]
+    pub unsafe fn new_with_unchecked(
+        library: &Arc<VulkanLibrary>,
+        create_info: &InstanceCreateInfo<'_>,
+        create_fn: impl FnOnce(&vk::InstanceCreateInfo<'_>) -> Result<vk::Instance, VulkanError>,
+    ) -> Result<Arc<Instance>, VulkanError> {
+        #[inline]
+        unsafe fn helper<F>(
+            library: &Arc<VulkanLibrary>,
+            create_info: &InstanceCreateInfo<'_>,
+            create_fn: ManuallyDrop<F>,
+        ) -> Result<Arc<Instance>, VulkanError>
+        where
+            F: FnOnce(&vk::InstanceCreateInfo<'_>) -> Result<vk::Instance, VulkanError>,
+        {
+            unsafe fn create_fn_raw<F>(
+                data: *const (),
+                create_info_vk: &vk::InstanceCreateInfo<'_>,
+            ) -> Result<vk::Instance, VulkanError>
+            where
+                F: FnOnce(&vk::InstanceCreateInfo<'_>) -> Result<vk::Instance, VulkanError>,
+            {
+                // SAFETY: The caller must ensure that `data` is the same one we pass below.
+                (unsafe { data.cast::<F>().read() })(create_info_vk)
+            }
+
+            unsafe {
+                Instance::new_with_unchecked_inner(
+                    library,
+                    create_info,
+                    (&raw const create_fn).cast(),
+                    create_fn_raw::<F>,
+                )
+            }
+        }
+
+        unsafe { helper(library, create_info, ManuallyDrop::new(create_fn)) }
+    }
+
+    unsafe fn new_with_unchecked_inner(
+        library: &Arc<VulkanLibrary>,
+        create_info: &InstanceCreateInfo<'_>,
+        data: *const (),
+        create_fn_raw: unsafe fn(
+            *const (),
+            &vk::InstanceCreateInfo<'_>,
+        ) -> Result<vk::Instance, VulkanError>,
+    ) -> Result<Arc<Instance>, VulkanError> {
         let mut flags = create_info.flags;
         let max_api_version = create_info.max_api_version.unwrap_or({
             let api_version = library.api_version();
@@ -386,16 +503,8 @@ impl Instance {
         let create_info_vk =
             create_info.to_vk(&create_info_fields1_vk, &mut create_info_extensions_vk);
 
-        let handle = {
-            let mut output = MaybeUninit::uninit();
-            let fns = library.fns();
-            unsafe {
-                (fns.v1_0.create_instance)(&create_info_vk, ptr::null(), output.as_mut_ptr())
-            }
-            .result()
-            .map_err(VulkanError::from)?;
-            unsafe { output.assume_init() }
-        };
+        // SAFETY: We only call the function once, and `data` is the same as what was passed to us.
+        let handle = unsafe { create_fn_raw(data, &create_info_vk) }?;
 
         Ok(unsafe { Self::from_handle(library, handle, &create_info) })
     }
@@ -1418,7 +1527,8 @@ impl<T> Deref for InstanceOwnedDebugWrapper<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::instance::InstanceExtensions;
+    use super::*;
+    use std::panic::{catch_unwind, resume_unwind};
 
     #[test]
     fn empty_extensions() {
@@ -1444,5 +1554,53 @@ mod tests {
     #[test]
     fn create_instance() {
         let _ = instance!();
+    }
+
+    #[test]
+    fn create_with() {
+        let library = match unsafe { VulkanLibrary::new() } {
+            Ok(x) => x,
+            Err(_) => return,
+        };
+
+        let arc = Arc::new(42);
+        let _arc2 = arc.clone();
+
+        let library_ref = &library;
+        let arc3 = arc.clone();
+        let create_fn = move |create_info_vk: &vk::InstanceCreateInfo<'_>| {
+            // Move one clone to the closure without consuming it in the closure.
+            let _ = &arc3;
+
+            let fns = library_ref.fns();
+            let mut instance_vk = vk::Instance::null();
+            unsafe { (fns.v1_0.create_instance)(create_info_vk, ptr::null(), &mut instance_vk) }
+                .result()
+                .map_err(VulkanError::from)?;
+
+            Ok(instance_vk)
+        };
+
+        let _ = unsafe { Instance::new_with(&library, &Default::default(), create_fn) };
+
+        // The closure should have been dropped exactly once, not zero or two times.
+        assert_eq!(Arc::strong_count(&arc), 2);
+
+        struct OurPayload;
+
+        let arc3 = arc.clone();
+        let create_fn = move |_create_info_vk: &vk::InstanceCreateInfo<'_>| {
+            let _ = &arc3;
+
+            resume_unwind(Box::new(OurPayload))
+        };
+
+        catch_unwind(|| unsafe { Instance::new_with(&library, &Default::default(), create_fn) })
+            .unwrap_err()
+            .downcast::<OurPayload>()
+            .unwrap();
+
+        // The closure should have been dropped exactly once even in the face of panics.
+        assert_eq!(Arc::strong_count(&arc), 2);
     }
 }
