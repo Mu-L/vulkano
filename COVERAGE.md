@@ -219,6 +219,7 @@ Coverage of support for Vulkan core features and extensions in Vulkano, as of th
 - [`VK_EXT_shader_tile_image`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_shader_tile_image.html)
 - [`VK_EXT_surface_maintenance1`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_surface_maintenance1.html)
 - [`VK_EXT_swapchain_colorspace`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_swapchain_colorspace.html)
+- [`VK_EXT_swapchain_maintenance1`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_swapchain_maintenance1.html)
 - [`VK_EXT_queue_family_foreign`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_queue_family_foreign.html)
 - [`VK_EXT_validation_features`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_validation_features.html)
 - [`VK_EXT_vertex_attribute_divisor`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_vertex_attribute_divisor.html) (promoted)
@@ -260,9 +261,6 @@ Coverage of support for Vulkan core features and extensions in Vulkano, as of th
 	- `vkSubmitDebugUtilsMessageEXT`
 	- `VkDebugUtilsMessengerCallbackDataEXT` (not all data exposed to callback)
 	- `VkDebugUtilsObjectNameInfoEXT` extending `VkPipelineShaderStageCreateInfo`
-- [`VK_EXT_swapchain_maintenance1`](https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VK_EXT_swapchain_maintenance1.html)
-	- `vkReleaseSwapchainImagesEXT` / `VkReleaseSwapchainImagesInfoEXT`
-	- `VkSwapchainPresentFenceInfoEXT`
 
 ### Unsupported
 
